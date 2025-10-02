@@ -1,1 +1,10 @@
 project_id = "jadoqquveokpukdlkqbv"
+
+[functions.transcribe-and-summarize]
+verify_jwt = false
+
+[functions.transcribe-chunk]
+verify_jwt = false
+
+[functions.summarize-from-transcript]
+verify_jwt = false
