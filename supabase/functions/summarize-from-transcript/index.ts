@@ -12,6 +12,23 @@ serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      throw new Error("No authorization header");
+    }
+
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.58.0");
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      throw new Error("Unauthorized");
+    }
+
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     const { transcript, languageHint } = await req.json();
     

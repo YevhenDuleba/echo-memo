@@ -36,16 +36,14 @@ const NoteDetail = () => {
 
   const fetchNote = async () => {
     try {
-      const { data, error } = await supabase
-        .from('notes')
-        .select('*')
-        .eq('id', noteId)
-        .single();
+      const { data, error } = await supabase.functions.invoke('get-note', {
+        body: { noteId }
+      });
 
       if (error) throw error;
 
-      setNote(data);
-      setTitle(data.title);
+      setNote(data.note);
+      setTitle(data.note.title);
     } catch (error) {
       console.error('Error fetching note:', error);
       toast({
@@ -62,10 +60,9 @@ const NoteDetail = () => {
     if (!note || title === note.title) return;
 
     try {
-      const { error } = await supabase
-        .from('notes')
-        .update({ title })
-        .eq('id', note.id);
+      const { data, error } = await supabase.functions.invoke('update-note', {
+        body: { noteId: note.id, title }
+      });
 
       if (error) throw error;
 
@@ -98,13 +95,13 @@ const NoteDetail = () => {
 
       if (error) throw error;
 
-      const { error: updateError } = await supabase
-        .from('notes')
-        .update({ 
+      const { error: updateError } = await supabase.functions.invoke('update-note', {
+        body: { 
+          noteId: note.id,
           summary: data.summary,
           title: data.title 
-        })
-        .eq('id', note.id);
+        }
+      });
 
       if (updateError) throw updateError;
 

@@ -6,39 +6,113 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Rate limiting helper
+async function checkRateLimit(supabase: any, userId: string, actionType: string, maxCount: number, windowSeconds: number): Promise<boolean> {
+  const now = new Date();
+  const windowStart = new Date(now.getTime() - windowSeconds * 1000);
+
+  const { data, error } = await supabase
+    .from('rate_limits')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('action_type', actionType)
+    .single();
+
+  if (error && error.code !== 'PGRST116') {
+    console.error('Rate limit check error:', error);
+    return true;
+  }
+
+  if (!data) {
+    await supabase.from('rate_limits').insert({
+      user_id: userId,
+      action_type: actionType,
+      action_count: 1,
+      window_start: now
+    });
+    return true;
+  }
+
+  if (new Date(data.window_start) < windowStart) {
+    await supabase.from('rate_limits').update({
+      action_count: 1,
+      window_start: now
+    }).eq('id', data.id);
+    return true;
+  }
+
+  if (data.action_count >= maxCount) {
+    return false;
+  }
+
+  await supabase.from('rate_limits').update({
+    action_count: data.action_count + 1
+  }).eq('id', data.id);
+
+  return true;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { audioPublicUrl } = await req.json();
-    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-    
-    if (!audioPublicUrl) {
-      throw new Error("audioPublicUrl is required");
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      throw new Error("No authorization header");
     }
 
-    console.log('Завантаження аудіо з:', audioPublicUrl);
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.58.0");
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      throw new Error("Unauthorized");
+    }
+
+    // Rate limiting: макс 20 транскрипцій на добу
+    const allowed = await checkRateLimit(supabase, user.id, 'transcribe', 20, 86400);
+    if (!allowed) {
+      return new Response(
+        JSON.stringify({ error: 'Rate limit exceeded: maximum 20 transcriptions per day' }),
+        {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    const { signedUrl } = await req.json();
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    
+    if (!signedUrl) {
+      throw new Error("signedUrl is required");
+    }
+
+    console.log('Завантаження аудіо з signed URL');
     
     // 1) Завантажити аудіо
-    const audioResp = await fetch(audioPublicUrl);
+    const audioResp = await fetch(signedUrl);
     if (!audioResp.ok) {
       throw new Error(`Failed to fetch audio: ${audioResp.status}`);
     }
     const arrayBuffer = await audioResp.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 
-    const isWebm = audioPublicUrl.toLowerCase().endsWith(".webm");
-    const isMp4 = audioPublicUrl.toLowerCase().endsWith(".mp4") || audioPublicUrl.toLowerCase().endsWith(".m4a");
-    const contentType = isWebm ? "audio/webm" : (isMp4 ? "audio/mp4" : "audio/wav");
-    const fileName = `note.${isWebm ? "webm" : (isMp4 ? "mp4" : "wav")}`;
+    // Визначаємо тип з Content-Type заголовка
+    const contentTypeHeader = audioResp.headers.get('content-type') || 'audio/webm';
+    const fileName = `note.${contentTypeHeader.split('/')[1].split(';')[0]}`;
 
     console.log('Транскрипція аудіо...');
     
     // 2) Транскрипція
     const form = new FormData();
-    form.append("file", new Blob([bytes], { type: contentType }), fileName);
+    form.append("file", new Blob([bytes], { type: contentTypeHeader }), fileName);
     form.append("model", "whisper-1");
     form.append("response_format", "verbose_json");
 

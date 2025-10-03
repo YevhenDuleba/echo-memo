@@ -1,10 +1,28 @@
 project_id = "jadoqquveokpukdlkqbv"
 
 [functions.transcribe-and-summarize]
-verify_jwt = false
+verify_jwt = true
 
 [functions.transcribe-chunk]
-verify_jwt = false
+verify_jwt = true
 
 [functions.summarize-from-transcript]
-verify_jwt = false
+verify_jwt = true
+
+[functions.upload-audio]
+verify_jwt = true
+
+[functions.create-note]
+verify_jwt = true
+
+[functions.list-notes]
+verify_jwt = true
+
+[functions.get-note]
+verify_jwt = true
+
+[functions.update-note]
+verify_jwt = true
+
+[functions.delete-note]
+verify_jwt = true

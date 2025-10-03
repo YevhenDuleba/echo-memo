@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,10 +20,11 @@ async function checkRateLimit(supabase: any, userId: string, actionType: string,
 
   if (error && error.code !== 'PGRST116') {
     console.error('Rate limit check error:', error);
-    return true;
+    return true; // Дозволяємо у випадку помилки
   }
 
   if (!data) {
+    // Перший запит - створюємо запис
     await supabase.from('rate_limits').insert({
       user_id: userId,
       action_type: actionType,
@@ -33,7 +34,9 @@ async function checkRateLimit(supabase: any, userId: string, actionType: string,
     return true;
   }
 
+  // Перевіряємо, чи минуло вікно
   if (new Date(data.window_start) < windowStart) {
+    // Скидаємо лічильник
     await supabase.from('rate_limits').update({
       action_count: 1,
       window_start: now
@@ -41,10 +44,12 @@ async function checkRateLimit(supabase: any, userId: string, actionType: string,
     return true;
   }
 
+  // Перевіряємо ліміт
   if (data.action_count >= maxCount) {
     return false;
   }
 
+  // Інкрементуємо лічильник
   await supabase.from('rate_limits').update({
     action_count: data.action_count + 1
   }).eq('id', data.id);
@@ -63,7 +68,6 @@ serve(async (req) => {
       throw new Error("No authorization header");
     }
 
-    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.58.0");
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -75,11 +79,11 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    // Rate limiting: макс 120 chunk транскрипцій на годину
-    const allowed = await checkRateLimit(supabase, user.id, 'transcribe_chunk', 120, 3600);
+    // Rate limiting: макс 20 нотаток на добу
+    const allowed = await checkRateLimit(supabase, user.id, 'create_note', 20, 86400);
     if (!allowed) {
       return new Response(
-        JSON.stringify({ error: 'Rate limit exceeded: maximum 120 chunk transcriptions per hour' }),
+        JSON.stringify({ error: 'Rate limit exceeded: maximum 20 notes per day' }),
         {
           status: 429,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -87,59 +91,44 @@ serve(async (req) => {
       );
     }
 
-    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-    const { chunkBase64, mimeType = "audio/webm" } = await req.json();
-    
-    if (!chunkBase64) {
-      throw new Error("chunkBase64 is required");
+    const { title, summary, transcript, language, audioUrl, durationSeconds } = await req.json();
+
+    if (!title) {
+      throw new Error("title is required");
     }
 
-    console.log('Транскрипція чанку...');
+    console.log(`Creating note for user ${user.id}: ${title}`);
 
-    // Декодування base64
-    const binaryString = atob(chunkBase64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
+    const { data: note, error: insertError } = await supabase
+      .from('notes')
+      .insert({
+        user_id: user.id,
+        title,
+        summary: summary || '',
+        transcript: transcript || '',
+        language: language || null,
+        audio_url: audioUrl || null,
+        duration_seconds: durationSeconds || null
+      })
+      .select()
+      .single();
 
-    const blob = new Blob([bytes], { type: mimeType });
+    if (insertError) throw insertError;
 
-    const form = new FormData();
-    form.append("file", blob, `chunk.webm`);
-    form.append("model", "whisper-1");
-    form.append("response_format", "verbose_json");
+    console.log(`Note created successfully: ${note.id}`);
 
-    const trRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-      body: form
-    });
-
-    if (!trRes.ok) {
-      const errorText = await trRes.text();
-      console.error('Transcription error:', errorText);
-      throw new Error(`Transcription failed: ${trRes.status} ${errorText}`);
-    }
-
-    const data = await trRes.json();
-    console.log('Чанк транскрибовано:', data.text?.substring(0, 50));
-    
     return new Response(
-      JSON.stringify({ 
-        text: data.text || "", 
-        language: data.language || null 
-      }),
+      JSON.stringify({ note }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );
   } catch (error) {
-    console.error('Error in transcribe-chunk:', error);
+    console.error('Error in create-note:', error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
       {
-        status: 500,
+        status: error instanceof Error && error.message === "Unauthorized" ? 401 : 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );

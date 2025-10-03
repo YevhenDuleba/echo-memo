@@ -15,6 +15,7 @@ const Live = () => {
   const [transcript, setTranscript] = useState("");
   const [timer, setTimer] = useState(0);
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -24,12 +25,31 @@ const Live = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate('/auth');
+        return;
+      }
+      setUser(session.user);
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        navigate('/auth');
+      } else {
+        setUser(session.user);
+      }
+    });
+
     return () => {
+      subscription.unsubscribe();
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
       }
     };
-  }, []);
+  }, [navigate]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -160,24 +180,33 @@ const Live = () => {
     }
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("Not authenticated");
+      }
+
       const fullBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
       
-      // Upload до Supabase Storage
-      const filePath = `meetings/${crypto.randomUUID()}.webm`;
-      const { error: uploadError } = await supabase.storage
-        .from('audio')
-        .upload(filePath, fullBlob, {
-          contentType: 'audio/webm',
-          upsert: true
-        });
+      // 1. Конвертуємо в base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onloadend = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          resolve(base64);
+        };
+        reader.readAsDataURL(fullBlob);
+      });
+
+      const audioBase64 = await base64Promise;
+
+      // 2. Завантажуємо через Edge Function
+      const { data: uploadData, error: uploadError } = await supabase.functions.invoke('upload-audio', {
+        body: { audioBase64, extension: 'webm' }
+      });
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('audio')
-        .getPublicUrl(filePath);
-
-      // Узагальнення з транскрипції
+      // 3. Узагальнення з транскрипції
       let title = 'Жива нотатка';
       let summary = '';
       
@@ -197,39 +226,50 @@ const Live = () => {
         console.error('Summarization error:', err);
       }
 
-      // Зберегти в базу
-      const { data: note, error: insertError } = await supabase
-        .from('notes')
-        .insert({
+      // 4. Створюємо нотатку через Edge Function
+      const { data: createData, error: createError } = await supabase.functions.invoke('create-note', {
+        body: {
           title,
           summary,
           transcript,
           language: detectedLanguage || null,
-          audio_url: publicUrl,
-          duration_seconds: timer
-        })
-        .select()
-        .single();
+          audioUrl: uploadData.signedUrl,
+          durationSeconds: timer
+        }
+      });
 
-      if (insertError) throw insertError;
+      if (createError) throw createError;
 
       toast({
         title: "Готово!",
         description: "Нотатка зі зустрічі створена",
       });
 
-      navigate(`/note?id=${note.id}`);
-    } catch (error) {
+      navigate(`/note?id=${createData.note.id}`);
+    } catch (error: any) {
       console.error('Error processing recording:', error);
-      toast({
-        title: "Помилка",
-        description: "Не вдалося зберегти нотатку",
-        variant: "destructive",
-      });
+      
+      if (error?.message?.includes('Rate limit')) {
+        toast({
+          title: "Ліміт перевищено",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Помилка",
+          description: "Не вдалося зберегти нотатку",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsProcessing(false);
     }
   };
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">

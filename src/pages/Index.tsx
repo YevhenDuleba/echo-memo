@@ -20,18 +20,26 @@ const Index = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchNotes();
+    checkAuth();
   }, []);
+
+  const checkAuth = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      navigate('/auth');
+      return;
+    }
+    fetchNotes();
+  };
 
   const fetchNotes = async () => {
     try {
-      const { data, error } = await supabase
-        .from('notes')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
+      const { data, error } = await supabase.functions.invoke('list-notes');
       if (error) throw error;
-      setNotes(data || []);
+      setNotes(data?.notes || []);
     } catch (error) {
       console.error('Error fetching notes:', error);
     } finally {

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,10 +10,33 @@ const Record = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate('/auth');
+        return;
+      }
+      setUser(session.user);
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        navigate('/auth');
+      } else {
+        setUser(session.user);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
 
   const startRecording = async () => {
     try {
@@ -68,62 +91,83 @@ const Record = () => {
     setIsProcessing(true);
     
     try {
-      // Upload до Supabase Storage
-      const filePath = `notes/${crypto.randomUUID()}.webm`;
-      const { error: uploadError } = await supabase.storage
-        .from('audio')
-        .upload(filePath, blob, {
-          contentType: 'audio/webm',
-          upsert: true
-        });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("Not authenticated");
+      }
+
+      // 1. Конвертуємо blob в base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onloadend = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          resolve(base64);
+        };
+        reader.readAsDataURL(blob);
+      });
+
+      const audioBase64 = await base64Promise;
+
+      // 2. Завантажуємо аудіо через Edge Function
+      const { data: uploadData, error: uploadError } = await supabase.functions.invoke('upload-audio', {
+        body: { audioBase64, extension: 'webm' }
+      });
 
       if (uploadError) throw uploadError;
 
-      // Отримати публічний URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('audio')
-        .getPublicUrl(filePath);
+      const { signedUrl } = uploadData;
 
-      // Транскрипція та узагальнення
-      const { data, error } = await supabase.functions.invoke('transcribe-and-summarize', {
-        body: { audioPublicUrl: publicUrl }
+      // 3. Транскрибуємо та узагальнюємо
+      const { data: transcribeData, error: transcribeError } = await supabase.functions.invoke('transcribe-and-summarize', {
+        body: { signedUrl }
       });
 
-      if (error) throw error;
+      if (transcribeError) throw transcribeError;
 
-      // Зберегти в базу даних
-      const { data: note, error: insertError } = await supabase
-        .from('notes')
-        .insert({
-          title: data.title || 'Аудіонотатка',
-          summary: data.summary || '',
-          transcript: data.transcript || '',
-          language: data.language || null,
-          audio_url: publicUrl,
-          duration_seconds: data.durationSeconds || null
-        })
-        .select()
-        .single();
+      // 4. Створюємо нотатку через Edge Function
+      const { data: createData, error: createError } = await supabase.functions.invoke('create-note', {
+        body: {
+          title: transcribeData.title || 'Аудіонотатка',
+          summary: transcribeData.summary || '',
+          transcript: transcribeData.transcript || '',
+          language: transcribeData.language || null,
+          audioUrl: signedUrl,
+          durationSeconds: transcribeData.durationSeconds || null
+        }
+      });
 
-      if (insertError) throw insertError;
+      if (createError) throw createError;
 
       toast({
         title: "Готово!",
         description: "Нотатка створена успішно",
       });
 
-      navigate(`/note?id=${note.id}`);
-    } catch (error) {
+      navigate(`/note?id=${createData.note.id}`);
+    } catch (error: any) {
       console.error('Error processing audio:', error);
-      toast({
-        title: "Помилка",
-        description: "Не вдалося обробити аудіо",
-        variant: "destructive",
-      });
+      
+      if (error?.message?.includes('Rate limit')) {
+        toast({
+          title: "Ліміт перевищено",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Помилка",
+          description: "Не вдалося обробити аудіо",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsProcessing(false);
     }
   };
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">

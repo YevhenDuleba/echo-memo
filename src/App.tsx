@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import Record from "./pages/Record";
 import Live from "./pages/Live";
 import NoteDetail from "./pages/NoteDetail";
+import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -19,6 +20,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/auth" element={<Auth />} />
           <Route path="/record" element={<Record />} />
           <Route path="/live" element={<Live />} />
           <Route path="/note" element={<NoteDetail />} />

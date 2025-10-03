@@ -24,6 +24,7 @@ export type Database = {
           summary: string | null
           title: string
           transcript: string | null
+          user_id: string
         }
         Insert: {
           audio_url?: string | null
@@ -34,6 +35,7 @@ export type Database = {
           summary?: string | null
           title?: string
           transcript?: string | null
+          user_id: string
         }
         Update: {
           audio_url?: string | null
@@ -44,6 +46,34 @@ export type Database = {
           summary?: string | null
           title?: string
           transcript?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      rate_limits: {
+        Row: {
+          action_count: number | null
+          action_type: string
+          created_at: string | null
+          id: string
+          user_id: string
+          window_start: string | null
+        }
+        Insert: {
+          action_count?: number | null
+          action_type: string
+          created_at?: string | null
+          id?: string
+          user_id: string
+          window_start?: string | null
+        }
+        Update: {
+          action_count?: number | null
+          action_type?: string
+          created_at?: string | null
+          id?: string
+          user_id?: string
+          window_start?: string | null
         }
         Relationships: []
       }
