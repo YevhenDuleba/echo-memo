@@ -1,4 +1,23 @@
-# Welcome to your Lovable project
+# AudioNotes — AI-powered audio notepad
+Status: #working project. Microphone recording, uploading to Supabase, automatic transcription, and short AI summaries are working. Live transcription (during online meetings) is currently being developed.
+What it is
+A web application for quickly creating audio notes: record your voice or the audio from a meeting tab, and the system transcribes what is said and generates a short summary in the same language. All files and notes are stored in Supabase.
+Features
+Recording from a microphone (/record page)
+Auto-transcription of audio and AI summary in the same language
+Live recording of a meeting from a browser tab + optional microphone (/live page) — WIP
+List of notes and note details (/notes, /note)
+Storage: Supabase Storage (audio bucket) + public.notes table
+Support for any language (auto-detection in transcription)
+Where it is useful
+Interviews, meetings, stand-ups
+Lectures, webinars, training sessions
+Voice diaries, field notes
+Preparation of notes, meeting summaries, follow-up letters
+Technologies
+Lovable (UI + Server Actions)
+Supabase (Postgres, Storage)
+OpenAI (transcription and summarization)
 
 ## Project info
 
