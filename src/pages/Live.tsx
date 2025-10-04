@@ -22,6 +22,10 @@ const Live = () => {
   const chunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef<number>(0);
   const timerIntervalRef = useRef<number | null>(null);
+  const processingQueueRef = useRef<Blob[]>([]);
+  const isProcessingRef = useRef(false);
+  const tabStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -67,6 +71,53 @@ const Live = () => {
     });
   };
 
+  const processChunkQueue = async () => {
+    if (isProcessingRef.current || processingQueueRef.current.length === 0) return;
+    
+    isProcessingRef.current = true;
+    
+    while (processingQueueRef.current.length > 0 && isRecording) {
+      const chunk = processingQueueRef.current.shift();
+      if (!chunk) continue;
+
+      // Захист від переповнення черги
+      if (processingQueueRef.current.length > 30) {
+        processingQueueRef.current.splice(0, processingQueueRef.current.length - 30);
+      }
+
+      try {
+        const b64 = await blobToBase64(chunk);
+        const base64Data = b64.split(',')[1];
+        
+        const { data, error } = await supabase.functions.invoke('transcribe-chunk', {
+          body: { 
+            chunkBase64: base64Data, 
+            mimeType: 'audio/webm'
+          }
+        });
+
+        if (!error && data?.text) {
+          setTranscript(prev => {
+            const newText = prev + (prev ? ' ' : '') + data.text;
+            return newText;
+          });
+          if (!detectedLanguage && data.language) {
+            setDetectedLanguage(data.language);
+          }
+        } else if (error) {
+          console.warn('Chunk transcription error:', error);
+        }
+      } catch (err) {
+        console.warn('Chunk transcription failed', err);
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    
+    isProcessingRef.current = false;
+  };
+
   const startCapture = async () => {
     try {
       const tabStream = await navigator.mediaDevices.getDisplayMedia({ 
@@ -74,34 +125,39 @@ const Live = () => {
         audio: true 
       });
       
+      tabStreamRef.current = tabStream;
+      
       let micStream: MediaStream | null = null;
       if (mixMic) {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        try {
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (err) {
+          console.warn('Microphone access denied', err);
+        }
       }
 
       const ctx = new AudioContext();
+      audioContextRef.current = ctx;
       const dest = ctx.createMediaStreamDestination();
-      const tracks: MediaStreamTrack[] = [];
 
       const tabAudio = tabStream.getAudioTracks();
       if (tabAudio.length) {
         ctx.createMediaStreamSource(new MediaStream([tabAudio[0]])).connect(dest);
-        tracks.push(tabAudio[0]);
       }
 
       if (micStream) {
         const micAudio = micStream.getAudioTracks();
         if (micAudio.length) {
           ctx.createMediaStreamSource(new MediaStream([micAudio[0]])).connect(dest);
-          tracks.push(micAudio[0]);
         }
       }
 
-      const vid = tabStream.getVideoTracks()[0];
-      if (vid) vid.stop();
-
+      // НЕ зупиняємо відеотрек тут!
+      
       const mixedStream = dest.stream;
-      const mimeType = 'audio/webm';
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+        ? 'audio/webm;codecs=opus' 
+        : 'audio/webm';
       
       const mediaRecorder = new MediaRecorder(mixedStream, { 
         mimeType,
@@ -110,42 +166,26 @@ const Live = () => {
       
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
+      processingQueueRef.current = [];
 
-      mediaRecorder.ondataavailable = async (e) => {
+      mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
           chunksRef.current.push(e.data);
-          
-          try {
-            const b64 = await blobToBase64(e.data);
-            const base64Data = b64.split(',')[1];
-            
-            const { data, error } = await supabase.functions.invoke('transcribe-chunk', {
-              body: { 
-                chunkBase64: base64Data, 
-                mimeType: 'audio/webm'
-              }
-            });
-
-            if (!error && data?.text) {
-              setTranscript(prev => {
-                const newText = prev + (prev ? ' ' : '') + data.text;
-                return newText;
-              });
-              if (!detectedLanguage && data.language) {
-                setDetectedLanguage(data.language);
-              }
-            } else if (error) {
-              console.warn('Chunk transcription error:', error);
-            }
-          } catch (err) {
-            console.warn('Chunk transcription failed', err);
-          }
+          processingQueueRef.current.push(e.data);
+          processChunkQueue();
         }
       };
 
       mediaRecorder.onstop = () => {
-        tracks.forEach(t => t.stop());
-        ctx.close();
+        // Тепер зупиняємо всі треки
+        if (tabStreamRef.current) {
+          tabStreamRef.current.getTracks().forEach(t => {
+            try { t.stop(); } catch {}
+          });
+        }
+        if (audioContextRef.current) {
+          try { audioContextRef.current.close(); } catch {}
+        }
       };
 
       startTimeRef.current = Date.now();
@@ -155,7 +195,7 @@ const Live = () => {
 
       setTranscript('');
       setDetectedLanguage(null);
-      mediaRecorder.start(3000); // чанк кожні 3 секунди для швидшого оновлення
+      mediaRecorder.start(2000);
       setIsRecording(true);
 
       toast({
