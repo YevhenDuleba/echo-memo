@@ -7,11 +7,14 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -106,6 +109,40 @@ const Auth = () => {
     setLoading(false);
   };
 
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail) {
+      toast({
+        title: "Помилка",
+        description: "Введіть email",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+    
+    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+
+    if (error) {
+      toast({
+        title: "Помилка",
+        description: error.message,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Успішно!",
+        description: "Перевірте свою пошту для відновлення паролю",
+      });
+      setResetDialogOpen(false);
+      setResetEmail("");
+    }
+    setLoading(false);
+  };
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md p-8">
@@ -146,6 +183,38 @@ const Auth = () => {
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "Вхід..." : "Увійти"}
               </Button>
+              
+              <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="link" className="w-full text-sm" type="button">
+                    Забули пароль?
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Відновлення паролю</DialogTitle>
+                    <DialogDescription>
+                      Введіть свій email для отримання посилання на відновлення паролю
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleResetPassword} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="reset-email">Email</Label>
+                      <Input
+                        id="reset-email"
+                        type="email"
+                        placeholder="your@email.com"
+                        value={resetEmail}
+                        onChange={(e) => setResetEmail(e.target.value)}
+                        disabled={loading}
+                      />
+                    </div>
+                    <Button type="submit" className="w-full" disabled={loading}>
+                      {loading ? "Відправка..." : "Відправити посилання"}
+                    </Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
             </form>
           </TabsContent>
           

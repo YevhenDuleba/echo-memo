@@ -8,6 +8,7 @@ import Record from "./pages/Record";
 import Live from "./pages/Live";
 import NoteDetail from "./pages/NoteDetail";
 import Auth from "./pages/Auth";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -21,6 +22,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/record" element={<Record />} />
           <Route path="/live" element={<Live />} />
           <Route path="/note" element={<NoteDetail />} />
