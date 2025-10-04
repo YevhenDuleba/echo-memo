@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Monitor, Square, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import SubtitleOverlay from "@/components/SubtitleOverlay";
 
 const Live = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -100,9 +101,7 @@ const Live = () => {
       if (vid) vid.stop();
 
       const mixedStream = dest.stream;
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
-        ? 'audio/webm;codecs=opus' 
-        : 'audio/webm';
+      const mimeType = 'audio/webm';
       
       const mediaRecorder = new MediaRecorder(mixedStream, { 
         mimeType,
@@ -123,15 +122,20 @@ const Live = () => {
             const { data, error } = await supabase.functions.invoke('transcribe-chunk', {
               body: { 
                 chunkBase64: base64Data, 
-                mimeType: e.data.type || 'audio/webm' 
+                mimeType: 'audio/webm'
               }
             });
 
             if (!error && data?.text) {
-              setTranscript(prev => prev + (prev ? ' ' : '') + data.text);
+              setTranscript(prev => {
+                const newText = prev + (prev ? ' ' : '') + data.text;
+                return newText;
+              });
               if (!detectedLanguage && data.language) {
                 setDetectedLanguage(data.language);
               }
+            } else if (error) {
+              console.warn('Chunk transcription error:', error);
             }
           } catch (err) {
             console.warn('Chunk transcription failed', err);
@@ -151,7 +155,7 @@ const Live = () => {
 
       setTranscript('');
       setDetectedLanguage(null);
-      mediaRecorder.start(5000); // чанк кожні 5 секунд
+      mediaRecorder.start(3000); // чанк кожні 3 секунди для швидшого оновлення
       setIsRecording(true);
 
       toast({
@@ -273,6 +277,7 @@ const Live = () => {
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
+      <SubtitleOverlay transcript={transcript} isRecording={isRecording} />
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
           <Button

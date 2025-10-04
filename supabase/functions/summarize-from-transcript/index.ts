@@ -43,10 +43,17 @@ serve(async (req) => {
 """${transcript}"""
 
 Завдання:
-1) Короткий інформативний заголовок мовою транскрипції.
-2) Стислий виклад (5–7 речень) з чіткими тезами.
-3) Та сама мова.
-JSON:
+1) Створи короткий, але інформативний заголовок (5-10 слів) мовою транскрипції, який точно відображає головну тему.
+2) Створи детальне узагальнення (10-15 речень) з:
+   - Основними темами обговорення
+   - Ключовими рішеннями або висновками
+   - Важливими деталями та контекстом
+   - Структурованим викладом з абзацами
+3) Використовуй ту саму мову, що й у транскрипції.
+4) Збережи важливу інформацію, імена, дати, числа.
+5) Роби узагальнення зрозумілим та корисним для читача.
+
+Поверни тільки JSON у форматі:
 {"title": "...", "summary": "..."}
 `;
 
@@ -57,13 +64,14 @@ JSON:
         "Content-Type": "application/json" 
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4o",
         response_format: { type: "json_object" },
-        temperature: 0.2,
+        temperature: 0.3,
+        max_tokens: 1000,
         messages: [
           { 
             role: "system", 
-            content: "You write concise, faithful summaries in the same language as the input." 
+            content: "You are an expert at creating detailed, comprehensive summaries. You write in the same language as the input and preserve all important information including names, dates, decisions, and context. Your summaries are well-structured and thorough." 
           },
           { role: "user", content: prompt }
         ]
