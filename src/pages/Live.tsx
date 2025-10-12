@@ -77,25 +77,30 @@ const Live = () => {
     isProcessingRef.current = true;
     console.log('[Live] Starting chunk processing, queue size:', processingQueueRef.current.length);
     
-    while (processingQueueRef.current.length > 0) {
-      const chunk = processingQueueRef.current.shift();
-      if (!chunk) continue;
+    // Накопичуємо 2-3 чанки перед обробкою для більш валідних WebM файлів
+    while (processingQueueRef.current.length >= 2) {
+      const chunk1 = processingQueueRef.current.shift();
+      const chunk2 = processingQueueRef.current.shift();
+      if (!chunk1 || !chunk2) continue;
 
       // Захист від переповнення черги
-      if (processingQueueRef.current.length > 20) {
+      if (processingQueueRef.current.length > 15) {
         console.warn('[Live] Queue overflow, dropping old chunks');
-        processingQueueRef.current.splice(0, processingQueueRef.current.length - 20);
+        processingQueueRef.current.splice(0, processingQueueRef.current.length - 15);
       }
 
       try {
-        console.log('[Live] Processing chunk, size:', chunk.size);
-        const b64 = await blobToBase64(chunk);
+        // Об'єднуємо 2 чанки для створення більш валідного WebM файлу
+        const combinedBlob = new Blob([chunk1, chunk2], { type: 'audio/webm;codecs=opus' });
+        console.log('[Live] Processing combined chunk, size:', combinedBlob.size);
+        
+        const b64 = await blobToBase64(combinedBlob);
         const base64Data = b64.split(',')[1];
         
         const { data, error } = await supabase.functions.invoke('transcribe-chunk', {
           body: { 
             chunkBase64: base64Data, 
-            mimeType: 'audio/webm;codecs=opus'
+            mimeType: 'audio/webm'
           }
         });
 
@@ -118,7 +123,7 @@ const Live = () => {
       }
       
       // Невелика затримка між чанками
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
     
     isProcessingRef.current = false;
@@ -181,18 +186,11 @@ const Live = () => {
         if (e.data && e.data.size > 0) {
           console.log('[Live] Data available, chunk size:', e.data.size);
           
-          // Пропускаємо дуже малі чанки (менше 10KB), вони можуть бути невалідними
-          if (e.data.size < 10000) {
-            console.warn('[Live] Chunk too small, skipping:', e.data.size);
-            chunksRef.current.push(e.data); // зберігаємо для фінального файлу
-            return;
-          }
-          
           chunksRef.current.push(e.data);
           processingQueueRef.current.push(e.data);
           
-          // Запускаємо обробку черги
-          if (!isProcessingRef.current) {
+          // Запускаємо обробку черги коли накопичилось 2+ чанки
+          if (!isProcessingRef.current && processingQueueRef.current.length >= 2) {
             processChunkQueue();
           }
         }
@@ -218,11 +216,11 @@ const Live = () => {
       setTranscript('');
       setDetectedLanguage(null);
       
-      // Запускаємо запис з інтервалом 5 секунд для більш стабільних чанків
-      mediaRecorder.start(5000);
+      // Запускаємо запис з інтервалом 4 секунди (по 2 чанки = 8 сек аудіо)
+      mediaRecorder.start(4000);
       setIsRecording(true);
       
-      console.log('[Live] Recording started with 5s intervals');
+      console.log('[Live] Recording started with 4s intervals');
 
       toast({
         title: "Запис почато",

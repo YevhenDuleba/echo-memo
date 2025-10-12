@@ -103,12 +103,13 @@ serve(async (req) => {
       bytes[i] = binaryString.charCodeAt(i);
     }
 
-    const blob = new Blob([bytes], { type: mimeType });
+    const blob = new Blob([bytes], { type: 'audio/webm' });
 
     const form = new FormData();
-    form.append("file", blob, `chunk.webm`);
+    form.append("file", blob, `audio_${Date.now()}.webm`);
     form.append("model", "whisper-1");
     form.append("response_format", "verbose_json");
+    form.append("language", "uk"); // Підказка для української мови
 
     const trRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
