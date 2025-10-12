@@ -6,6 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+
 // Rate limiting helper
 async function checkRateLimit(supabase: any, userId: string, actionType: string, maxCount: number, windowSeconds: number): Promise<boolean> {
   const now = new Date();
@@ -75,11 +77,11 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    // Rate limiting: макс 120 chunk транскрипцій на годину
-    const allowed = await checkRateLimit(supabase, user.id, 'transcribe_chunk', 120, 3600);
+    // Rate limiting: макс 200 chunk транскрипцій на годину (більше для Gemini)
+    const allowed = await checkRateLimit(supabase, user.id, 'transcribe_chunk', 200, 3600);
     if (!allowed) {
       return new Response(
-        JSON.stringify({ error: 'Rate limit exceeded: maximum 120 chunk transcriptions per hour' }),
+        JSON.stringify({ error: 'Rate limit exceeded: maximum 200 chunk transcriptions per hour' }),
         {
           status: 429,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -87,49 +89,85 @@ serve(async (req) => {
       );
     }
 
-    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY not configured');
+    }
+
     const { chunkBase64, mimeType = "audio/webm" } = await req.json();
     
     if (!chunkBase64) {
       throw new Error("chunkBase64 is required");
     }
 
-    console.log('Транскрипція чанку...');
+    console.log('Транскрипція чанку через Gemini...');
 
-    // Декодування base64
-    const binaryString = atob(chunkBase64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-
-    const blob = new Blob([bytes], { type: 'audio/webm' });
-
-    const form = new FormData();
-    form.append("file", blob, `audio_${Date.now()}.webm`);
-    form.append("model", "whisper-1");
-    form.append("response_format", "verbose_json");
-    form.append("language", "uk"); // Підказка для української мови
-
-    const trRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-      body: form
+    // Використовуємо Gemini 2.5 Flash для транскрипції аудіо
+    const aiResponse = await fetch(LOVABLE_AI_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Транскрибуй цей аудіо фрагмент. Верни ТІЛЬКИ текст транскрипції, без жодних додаткових коментарів або форматування. Якщо аудіо українською - пиши українською, якщо англійською - англійською.'
+              },
+              {
+                type: 'input_audio',
+                input_audio: {
+                  data: chunkBase64,
+                  format: 'webm'
+                }
+              }
+            ]
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 500
+      })
     });
 
-    if (!trRes.ok) {
-      const errorText = await trRes.text();
-      console.error('Transcription error:', errorText);
-      throw new Error(`Transcription failed: ${trRes.status} ${errorText}`);
+    if (!aiResponse.ok) {
+      const errorText = await aiResponse.text();
+      console.error('Gemini transcription error:', errorText);
+      
+      if (aiResponse.status === 429) {
+        return new Response(
+          JSON.stringify({ error: 'AI rate limit exceeded, please try again later' }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      throw new Error(`Gemini API error: ${aiResponse.status} ${errorText}`);
     }
 
-    const data = await trRes.json();
-    console.log('Чанк транскрибовано:', data.text?.substring(0, 50));
+    const aiData = await aiResponse.json();
+    const transcriptText = aiData.choices?.[0]?.message?.content?.trim() || '';
+    
+    console.log('Чанк транскрибовано:', transcriptText.substring(0, 50));
+    
+    // Визначення мови (проста евристика)
+    let detectedLanguage = null;
+    if (transcriptText) {
+      // Українська - якщо є кирилиця
+      if (/[а-яА-ЯіІїЇєЄґҐ]/.test(transcriptText)) {
+        detectedLanguage = 'uk';
+      } else if (/[a-zA-Z]/.test(transcriptText)) {
+        detectedLanguage = 'en';
+      }
+    }
     
     return new Response(
       JSON.stringify({ 
-        text: data.text || "", 
-        language: data.language || null 
+        text: transcriptText, 
+        language: detectedLanguage
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

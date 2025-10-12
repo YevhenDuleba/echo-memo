@@ -77,24 +77,19 @@ const Live = () => {
     isProcessingRef.current = true;
     console.log('[Live] Starting chunk processing, queue size:', processingQueueRef.current.length);
     
-    // Накопичуємо 2-3 чанки перед обробкою для більш валідних WebM файлів
-    while (processingQueueRef.current.length >= 2) {
-      const chunk1 = processingQueueRef.current.shift();
-      const chunk2 = processingQueueRef.current.shift();
-      if (!chunk1 || !chunk2) continue;
+    while (processingQueueRef.current.length > 0) {
+      const chunk = processingQueueRef.current.shift();
+      if (!chunk) continue;
 
       // Захист від переповнення черги
-      if (processingQueueRef.current.length > 15) {
+      if (processingQueueRef.current.length > 20) {
         console.warn('[Live] Queue overflow, dropping old chunks');
-        processingQueueRef.current.splice(0, processingQueueRef.current.length - 15);
+        processingQueueRef.current.splice(0, processingQueueRef.current.length - 20);
       }
 
       try {
-        // Об'єднуємо 2 чанки для створення більш валідного WebM файлу
-        const combinedBlob = new Blob([chunk1, chunk2], { type: 'audio/webm;codecs=opus' });
-        console.log('[Live] Processing combined chunk, size:', combinedBlob.size);
-        
-        const b64 = await blobToBase64(combinedBlob);
+        console.log('[Live] Processing chunk, size:', chunk.size);
+        const b64 = await blobToBase64(chunk);
         const base64Data = b64.split(',')[1];
         
         const { data, error } = await supabase.functions.invoke('transcribe-chunk', {
@@ -123,7 +118,7 @@ const Live = () => {
       }
       
       // Невелика затримка між чанками
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
     
     isProcessingRef.current = false;
@@ -189,8 +184,8 @@ const Live = () => {
           chunksRef.current.push(e.data);
           processingQueueRef.current.push(e.data);
           
-          // Запускаємо обробку черги коли накопичилось 2+ чанки
-          if (!isProcessingRef.current && processingQueueRef.current.length >= 2) {
+          // Запускаємо обробку черги
+          if (!isProcessingRef.current) {
             processChunkQueue();
           }
         }
