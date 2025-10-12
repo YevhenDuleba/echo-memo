@@ -95,7 +95,7 @@ const Live = () => {
         const { data, error } = await supabase.functions.invoke('transcribe-chunk', {
           body: { 
             chunkBase64: base64Data, 
-            mimeType: 'audio/webm'
+            mimeType: 'audio/webm;codecs=opus'
           }
         });
 
@@ -162,11 +162,15 @@ const Live = () => {
       // НЕ зупиняємо відеотрек тут!
       
       const mixedStream = dest.stream;
-      const mimeType = 'audio/webm';
+      // Використовуємо найкращий доступний кодек
+      let mimeType = 'audio/webm;codecs=opus';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm';
+      }
       
       const mediaRecorder = new MediaRecorder(mixedStream, { 
         mimeType,
-        audioBitsPerSecond: 96000
+        audioBitsPerSecond: 128000
       });
       
       mediaRecorderRef.current = mediaRecorder;
@@ -176,6 +180,14 @@ const Live = () => {
       mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
           console.log('[Live] Data available, chunk size:', e.data.size);
+          
+          // Пропускаємо дуже малі чанки (менше 10KB), вони можуть бути невалідними
+          if (e.data.size < 10000) {
+            console.warn('[Live] Chunk too small, skipping:', e.data.size);
+            chunksRef.current.push(e.data); // зберігаємо для фінального файлу
+            return;
+          }
+          
           chunksRef.current.push(e.data);
           processingQueueRef.current.push(e.data);
           
@@ -206,11 +218,11 @@ const Live = () => {
       setTranscript('');
       setDetectedLanguage(null);
       
-      // Запускаємо запис з інтервалом 3 секунди
-      mediaRecorder.start(3000);
+      // Запускаємо запис з інтервалом 5 секунд для більш стабільних чанків
+      mediaRecorder.start(5000);
       setIsRecording(true);
       
-      console.log('[Live] Recording started with 3s intervals');
+      console.log('[Live] Recording started with 5s intervals');
 
       toast({
         title: "Запис почато",
