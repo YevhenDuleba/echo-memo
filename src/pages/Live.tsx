@@ -75,17 +75,20 @@ const Live = () => {
     if (isProcessingRef.current || processingQueueRef.current.length === 0) return;
     
     isProcessingRef.current = true;
+    console.log('[Live] Starting chunk processing, queue size:', processingQueueRef.current.length);
     
-    while (processingQueueRef.current.length > 0 && isRecording) {
+    while (processingQueueRef.current.length > 0) {
       const chunk = processingQueueRef.current.shift();
       if (!chunk) continue;
 
       // Захист від переповнення черги
-      if (processingQueueRef.current.length > 30) {
-        processingQueueRef.current.splice(0, processingQueueRef.current.length - 30);
+      if (processingQueueRef.current.length > 20) {
+        console.warn('[Live] Queue overflow, dropping old chunks');
+        processingQueueRef.current.splice(0, processingQueueRef.current.length - 20);
       }
 
       try {
+        console.log('[Live] Processing chunk, size:', chunk.size);
         const b64 = await blobToBase64(chunk);
         const base64Data = b64.split(',')[1];
         
@@ -97,25 +100,29 @@ const Live = () => {
         });
 
         if (!error && data?.text) {
+          console.log('[Live] Transcription received:', data.text);
           setTranscript(prev => {
             const newText = prev + (prev ? ' ' : '') + data.text;
             return newText;
           });
           if (!detectedLanguage && data.language) {
             setDetectedLanguage(data.language);
+            console.log('[Live] Language detected:', data.language);
           }
         } else if (error) {
-          console.warn('Chunk transcription error:', error);
+          console.error('[Live] Chunk transcription error:', error);
         }
       } catch (err) {
-        console.warn('Chunk transcription failed', err);
-        await new Promise(resolve => setTimeout(resolve, 400));
+        console.error('[Live] Chunk transcription failed:', err);
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
       
-      await new Promise(resolve => setTimeout(resolve, 10));
+      // Невелика затримка між чанками
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
     
     isProcessingRef.current = false;
+    console.log('[Live] Finished processing chunks');
   };
 
   const startCapture = async () => {
@@ -155,13 +162,11 @@ const Live = () => {
       // НЕ зупиняємо відеотрек тут!
       
       const mixedStream = dest.stream;
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
-        ? 'audio/webm;codecs=opus' 
-        : 'audio/webm';
+      const mimeType = 'audio/webm';
       
       const mediaRecorder = new MediaRecorder(mixedStream, { 
         mimeType,
-        audioBitsPerSecond: 128000 
+        audioBitsPerSecond: 96000
       });
       
       mediaRecorderRef.current = mediaRecorder;
@@ -170,9 +175,14 @@ const Live = () => {
 
       mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
+          console.log('[Live] Data available, chunk size:', e.data.size);
           chunksRef.current.push(e.data);
           processingQueueRef.current.push(e.data);
-          processChunkQueue();
+          
+          // Запускаємо обробку черги
+          if (!isProcessingRef.current) {
+            processChunkQueue();
+          }
         }
       };
 
@@ -195,8 +205,12 @@ const Live = () => {
 
       setTranscript('');
       setDetectedLanguage(null);
-      mediaRecorder.start(2000);
+      
+      // Запускаємо запис з інтервалом 3 секунди
+      mediaRecorder.start(3000);
       setIsRecording(true);
+      
+      console.log('[Live] Recording started with 3s intervals');
 
       toast({
         title: "Запис почато",
