@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Mic, Monitor, Music } from "lucide-react";
+import { Mic, Music } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface Note {
@@ -78,9 +78,9 @@ const Index = () => {
 
       {/* Actions */}
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-8">
-        <div className="grid md:grid-cols-2 gap-6 mb-12">
+        <div className="mb-12">
           <Card 
-            className="p-8 hover:shadow-xl transition-all cursor-pointer bg-gradient-to-br from-card to-muted/30 border-primary/20 hover:border-primary/40"
+            className="p-8 hover:shadow-xl transition-all cursor-pointer bg-gradient-to-br from-card to-muted/30 border-primary/20 hover:border-primary/40 max-w-2xl mx-auto"
             onClick={() => navigate('/record')}
           >
             <div className="flex items-start gap-6">
@@ -91,23 +91,6 @@ const Index = () => {
                 <h3 className="text-2xl font-semibold mb-2">Нова аудіонотатка</h3>
                 <p className="text-muted-foreground">
                   Запишіть голосову нотатку з автоматичною транскрипцією та узагальненням
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          <Card 
-            className="p-8 hover:shadow-xl transition-all cursor-pointer bg-gradient-to-br from-card to-muted/30 border-accent/20 hover:border-accent/40"
-            onClick={() => navigate('/live')}
-          >
-            <div className="flex items-start gap-6">
-              <div className="p-4 bg-accent/10 rounded-xl">
-                <Monitor className="h-8 w-8 text-accent" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-2xl font-semibold mb-2">Живий запис зустрічі</h3>
-                <p className="text-muted-foreground">
-                  Захопіть аудіо зі вкладки браузера з живими субтитрами
                 </p>
               </div>
             </div>
@@ -129,16 +112,10 @@ const Index = () => {
               <p className="text-muted-foreground mb-6">
                 Почніть запис, щоб створити свою першу аудіонотатку
               </p>
-              <div className="flex gap-4 justify-center">
-                <Button onClick={() => navigate('/record')}>
-                  <Mic className="mr-2 h-4 w-4" />
-                  Записати нотатку
-                </Button>
-                <Button variant="outline" onClick={() => navigate('/live')}>
-                  <Monitor className="mr-2 h-4 w-4" />
-                  Живий запис
-                </Button>
-              </div>
+              <Button onClick={() => navigate('/record')}>
+                <Mic className="mr-2 h-4 w-4" />
+                Записати нотатку
+              </Button>
             </Card>
           ) : (
             <div className="grid gap-4">

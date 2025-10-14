@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import Record from "./pages/Record";
-import Live from "./pages/Live";
 import NoteDetail from "./pages/NoteDetail";
 import Auth from "./pages/Auth";
 import ResetPassword from "./pages/ResetPassword";
@@ -24,7 +23,6 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/record" element={<Record />} />
-          <Route path="/live" element={<Live />} />
           <Route path="/note" element={<NoteDetail />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
